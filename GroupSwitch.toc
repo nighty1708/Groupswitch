@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: GroupSwitch
+## Notes: Sauvegarde et applique rapidement des compositions de groupes de raid.
+## Author: Klodoraids
+## Version: 1.4.0
+## SavedVariables: GroupSwitchDB
+
+GroupSwitch.lua

@@ -1,0 +1,49 @@
+GroupSwitch v1.1.0 - TEST
+
+Installation : copier le dossier GroupSwitch dans Interface\AddOns\ puis /reload.
+Commande : /gs ou /groupswitch
+
+Test conseillé :
+1. Former un raid.
+2. Sélectionner NORMAL puis Enregistrer.
+3. Modifier quelques groupes manuellement.
+4. Cliquer Appliquer.
+5. Vérifier que les joueurs reviennent dans leurs groupes enregistrés.
+
+L'application nécessite chef de raid ou assistant.
+
+Correction 1.0.1 : compatibilité Vanilla 1.12 des appels SetPoint.
+
+Correction 1.0.2 : chaque bouton conserve son propre index de profil sous Vanilla 1.12.
+
+Correction 1.0.3 : application séquentielle automatique, un seul clic puis attente de RAID_ROSTER_UPDATE entre chaque mouvement.
+
+Correction 1.0.4 :
+- Restauration de la vérification chef de raid / assistant.
+- Compatible Vanilla 1.12 via le rang renvoyé par GetRaidRosterInfo.
+- Le moteur One Click Apply de la 1.0.3 est conservé.
+
+Correction 1.0.5 :
+- Audit complet du moteur One Click Apply après les patches précédents.
+- GetProfileName corrigé vers la fonction existante PName.
+- GetRaidMap corrigé vers la fonction existante RaidMap.
+- Ajout de DesiredGroup, utilisé par le moteur séquentiel.
+- Aucun changement du fonctionnement Enregistrer / profils / interface.
+
+Version 1.1.0 : noms personnalisables pour les 4 profils. Le moteur One Click Apply validé en 1.0.5 reste inchangé.
+
+
+GroupSwitch v1.2.0 TEST - Editeur de profil
+-------------------------------------------
+NOUVEAU :
+- bouton "Éditer le profil"
+- 8 groupes modifiables même hors raid
+- 1 pseudo par ligne
+- ajout d'un joueur absent/offline
+- déplacement par couper/coller entre groupes
+- suppression en effaçant le pseudo
+- maximum 5 joueurs par groupe
+- détection des pseudos présents plusieurs fois
+
+Le moteur "Appliquer" de la version validée n'a pas été modifié.
+Les joueurs absents sont toujours ignorés lors de l'application.
