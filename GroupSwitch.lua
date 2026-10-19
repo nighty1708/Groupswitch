@@ -1,5 +1,5 @@
 GroupSwitchDB = GroupSwitchDB or {}
-local GS = { version="1.4.0", profileNames={"NORMAL","BOSS 1","BOSS 2","BOSS 3"}, selected=1 }
+local GS = { version="1.4.6", profileNames={"NORMAL","BOSS 1","BOSS 2","BOSS 3"}, selected=1 }
 local function Msg(t) DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99GroupSwitch|r : "..t) end
 local function IsRaidLeaderOrOfficer()
  local playerName=UnitName("player")
@@ -16,7 +16,7 @@ local function IsRaidLeaderOrOfficer()
  return false
 end
 
-local function EnsureDB() if type(GroupSwitchDB)~="table" then GroupSwitchDB={} end if type(GroupSwitchDB.profiles)~="table" then GroupSwitchDB.profiles={} end if type(GroupSwitchDB.knownPlayers)~="table" then GroupSwitchDB.knownPlayers={} end end
+local function EnsureDB() if type(GroupSwitchDB)~="table" then GroupSwitchDB={} end if type(GroupSwitchDB.profiles)~="table" then GroupSwitchDB.profiles={} end if type(GroupSwitchDB.knownPlayers)~="table" then GroupSwitchDB.knownPlayers={} end if type(GroupSwitchDB.profileMarkers)~="table" then GroupSwitchDB.profileMarkers={} end end
 local function CanMove()
  if GetNumRaidMembers()==0 then return false end
  local me=UnitName("player")
@@ -68,6 +68,31 @@ function GS:Save()
  for i=1,GetNumRaidMembers() do local n,r,g=GetRaidRosterInfo(i); if n and g then p.players[n]=g; GroupSwitchDB.knownPlayers[n]=true end end
  GroupSwitchDB.profiles[PName()]=p; Msg("|cffffff00"..ProfileDisplayName(self.selected).."|r enregistré ("..GetNumRaidMembers().." joueurs)."); self:Refresh()
 end
+function GS:ApplyProfileMarkers(profileSlot)
+ EnsureDB()
+ if not SetRaidTarget then return end
+ local key=self.profileNames[profileSlot or self.selected]
+ local markers=GroupSwitchDB.profileMarkers and GroupSwitchDB.profileMarkers[key]
+ if type(markers)~="table" then return end
+
+ local roster=RaidMap()
+ local applied=0
+ for name,marker in pairs(markers) do
+  if marker and marker>=1 and marker<=8 then
+   local found=nil
+   local lname=string.lower(name)
+   for raidName,info in pairs(roster) do
+    if string.lower(raidName)==lname then found=info break end
+   end
+   if found and found.index then
+    SetRaidTarget("raid"..found.index,marker)
+    applied=applied+1
+   end
+  end
+ end
+ if applied>0 then Msg(applied.." symbole(s) de raid appliqué(s).") end
+end
+
 function GS:FinishApply()
  local profile=self.applyProfile
  local profileName=self.applyProfileName or "?"
@@ -87,10 +112,12 @@ function GS:FinishApply()
    table.insert(missing,name)
   end
  end
- self.applying=nil; self.waitingRoster=nil; self.rosterConfirmed=nil; self.applyDelay=nil; self.applyTimeout=nil; self.applyProfile=nil; self.applyProfileName=nil; self.applySteps=0
+ local appliedSlot=self.applyProfileSlot or self.selected
+ self.applying=nil; self.waitingRoster=nil; self.rosterConfirmed=nil; self.applyDelay=nil; self.applyTimeout=nil; self.applyProfile=nil; self.applyProfileName=nil; self.applyProfileSlot=nil; self.applySteps=0
  Msg("|cffffff00"..profileName.."|r appliqué : "..correct.."/"..present.." joueurs placés.")
  if table.getn(missing)>0 then Msg("Absents : "..table.concat(missing,", ")) end
  if table.getn(unresolved)>0 then Msg("|cffff6666À placer manuellement :|r "..table.concat(unresolved,", ")) end
+ self:ApplyProfileMarkers(appliedSlot)
  self:Refresh()
 end
 
@@ -182,6 +209,7 @@ function GS:Apply()
  self.waitingRoster=false
  self.applyProfile=profile
  self.applyProfileName=ProfileDisplayName(self.selected)
+ self.applyProfileSlot=self.selected
  self.applySteps=0
  self.applyDelay=nil
  self.applyTimeout=nil
@@ -196,6 +224,33 @@ local function TrimName(txt)
  txt=string.gsub(txt,"^%s+","")
  txt=string.gsub(txt,"%s+$","")
  return txt
+end
+
+function GS:AddKnownPlayerManual()
+ EnsureDB()
+ if not self.newKnownPlayerEdit then return end
+ local name=TrimName(self.newKnownPlayerEdit:GetText() or "")
+ if name=="" then
+  Msg("|cffff6666Entrez un pseudo.|r")
+  return
+ end
+
+ local lname=string.lower(name)
+ for known,enabled in pairs(GroupSwitchDB.knownPlayers) do
+  if enabled and string.lower(known)==lname then
+   Msg("|cffffff00"..known.."|r est déjà dans les joueurs connus.")
+   self.newKnownPlayerEdit:SetText("")
+   self.newKnownPlayerEdit:ClearFocus()
+   return
+  end
+ end
+
+ GroupSwitchDB.knownPlayers[name]=true
+ self.newKnownPlayerEdit:SetText("")
+ self.newKnownPlayerEdit:ClearFocus()
+ self.knownOffset=0
+ self:RefreshKnownPlayers()
+ Msg("|cff66ff66"..name.."|r ajouté aux joueurs connus.")
 end
 
 function GS:GetKnownPlayersSorted()
@@ -410,6 +465,48 @@ function GS:SetEditorGroupNames(group,names)
  self.editorBoxes[group]:SetText(table.concat(names,"\n"))
 end
 
+local GS_MARKERS = {
+ {id=1,label="{star}",name="Étoile"},
+ {id=2,label="{circle}",name="Cercle"},
+ {id=3,label="{diamond}",name="Losange"},
+ {id=4,label="{triangle}",name="Triangle"},
+ {id=5,label="{moon}",name="Lune"},
+ {id=6,label="{square}",name="Carré"},
+ {id=7,label="{cross}",name="Croix"},
+ {id=8,label="{skull}",name="Crâne"}
+}
+
+function GS:GetEditorProfileMarkerTable()
+ EnsureDB()
+ local slot=(self.editor and self.editor.slot) or self.selected
+ local key=self.profileNames[slot]
+ if type(GroupSwitchDB.profileMarkers[key])~="table" then GroupSwitchDB.profileMarkers[key]={} end
+ return GroupSwitchDB.profileMarkers[key]
+end
+
+function GS:GetPlayerMarker(name)
+ if not name then return nil end
+ local markers=self:GetEditorProfileMarkerTable()
+ return markers[string.lower(name)]
+end
+
+function GS:SetPlayerMarker(name,marker)
+ if not name then return end
+ local markers=self:GetEditorProfileMarkerTable()
+ local key=string.lower(name)
+ if marker then markers[key]=marker else markers[key]=nil end
+ self:RefreshEditorSlots()
+end
+
+function GS:OpenMarkerMenu(button)
+ if not button or not button.playerName or not self.markerMenu then return end
+ self.markerPlayer=button.playerName
+ self.markerMenuTitle:SetText("Symbole : |cffffff00"..button.playerName.."|r")
+ self.markerMenu:ClearAllPoints()
+ self.markerMenu:SetPoint("TOPLEFT",button,"BOTTOMLEFT",0,-2)
+ self.markerMenu:Show()
+end
+
 function GS:RefreshEditorSlots()
  if not self.editorSlotButtons then return end
  for g=1,8 do
@@ -419,12 +516,34 @@ function GS:RefreshEditorSlots()
    local name=names[row]
    if name then
     b.playerName=name
+    local marker=self:GetPlayerMarker(name)
     b:SetText(name)
+    if b.markerTexture then
+     if marker then
+      local coords={
+       [1]={0.00,0.25,0.00,0.25},
+       [2]={0.25,0.50,0.00,0.25},
+       [3]={0.50,0.75,0.00,0.25},
+       [4]={0.75,1.00,0.00,0.25},
+       [5]={0.00,0.25,0.25,0.50},
+       [6]={0.25,0.50,0.25,0.50},
+       [7]={0.50,0.75,0.25,0.50},
+       [8]={0.75,1.00,0.25,0.50}
+      }
+      local c=coords[marker]
+      b.markerTexture:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+      if c then b.markerTexture:SetTexCoord(c[1],c[2],c[3],c[4]) end
+      b.markerTexture:Show()
+     else
+      b.markerTexture:Hide()
+     end
+    end
     b:EnableMouse(true)
     b:Show()
    else
     b.playerName=nil
     b:SetText("")
+    if b.markerTexture then b.markerTexture:Hide() end
     b:EnableMouse(false)
     b:Hide()
    end
@@ -597,7 +716,7 @@ end
 function GS:CreateEditor()
  if self.editor then return end
  local f=CreateFrame("Frame","GroupSwitchEditorFrame",UIParent)
- f:SetWidth(930); f:SetHeight(430)
+ f:SetWidth(930); f:SetHeight(470)
  f:SetPoint("CENTER",UIParent,"CENTER",0,0)
  f:SetFrameStrata("FULLSCREEN_DIALOG")
  f:EnableMouse(true)
@@ -613,7 +732,7 @@ function GS:CreateEditor()
 
  local help=f:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
  help:SetPoint("TOP",title,"BOTTOM",0,-7)
- help:SetText("Glissez un joueur vers un autre groupe • groupe plein : déposez-le sur le joueur à échanger")
+ help:SetText("Glissez un joueur pour le déplacer • clic droit sur un pseudo : symbole du profil")
 
  self.editorBoxes={}
  self.editorSlotButtons={}
@@ -667,8 +786,18 @@ function GS:CreateEditor()
    sb.text=txt
    sb.SetText=function(self,value) self.text:SetText(value or "") end
 
+   local markerTexture=sb:CreateTexture(nil,"OVERLAY")
+   markerTexture:SetWidth(14); markerTexture:SetHeight(14)
+   markerTexture:SetPoint("RIGHT",sb,"RIGHT",-2,0)
+   markerTexture:Hide()
+   sb.markerTexture=markerTexture
+
    sb:SetScript("OnDragStart",function() GS:EditorSlotDragStart(this) end)
    sb:SetScript("OnDragStop",function() GS:EditorSlotDragStop(this) end)
+   sb:RegisterForClicks("LeftButtonUp","RightButtonUp")
+   sb:SetScript("OnClick",function()
+    if arg1=="RightButton" then GS:OpenMarkerMenu(this) end
+   end)
    sb:Hide()
    self.editorSlotButtons[g][r]=sb
   end
@@ -688,6 +817,36 @@ function GS:CreateEditor()
  ghost:Hide()
  self.dragGhost=ghost
  self.dragGhostText=gt
+
+ -- Menu de symbole visuel du profil. Il ne pose aucun symbole en jeu.
+ local mm=CreateFrame("Frame","GroupSwitchMarkerMenu",f)
+ mm:SetWidth(175); mm:SetHeight(218)
+ mm:SetFrameStrata("TOOLTIP")
+ mm:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",tile=true,tileSize=16,edgeSize=16,insets={left=5,right=5,top=5,bottom=5}})
+ local mmt=mm:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+ mmt:SetPoint("TOP",mm,"TOP",0,-10)
+ self.markerMenuTitle=mmt
+ for i=1,8 do
+  local mb=CreateFrame("Button",nil,mm,"UIPanelButtonTemplate")
+  mb:SetWidth(145); mb:SetHeight(19)
+  mb:SetPoint("TOP",mm,"TOP",0,-30-(i-1)*20)
+  mb.markerId=GS_MARKERS[i].id
+  mb:SetText(GS_MARKERS[i].name)
+  mb:SetScript("OnClick",function()
+   GS:SetPlayerMarker(GS.markerPlayer,this.markerId)
+   GroupSwitchMarkerMenu:Hide()
+  end)
+ end
+ local none=CreateFrame("Button",nil,mm,"UIPanelButtonTemplate")
+ none:SetWidth(145); none:SetHeight(19)
+ none:SetPoint("BOTTOM",mm,"BOTTOM",0,8)
+ none:SetText("Aucun symbole")
+ none:SetScript("OnClick",function()
+  GS:SetPlayerMarker(GS.markerPlayer,nil)
+  GroupSwitchMarkerMenu:Hide()
+ end)
+ mm:Hide()
+ self.markerMenu=mm
 
  local mf=CreateFrame("Frame","GroupSwitchEditorMoveFrame",f)
  mf:SetWidth(270); mf:SetHeight(110)
@@ -734,8 +893,27 @@ function GS:CreateEditor()
  sep:SetWidth(1); sep:SetHeight(300)
  sep:SetPoint("TOPLEFT",f,"TOPLEFT",700,-70)
 
+ local addTitle=f:CreateFontString(nil,"OVERLAY","GameFontNormal")
+ addTitle:SetPoint("TOPLEFT",f,"TOPLEFT",720,-72)
+ addTitle:SetText("Ajouter un joueur")
+
+ local addBox=CreateFrame("EditBox","GroupSwitchNewKnownPlayerEdit",f,"InputBoxTemplate")
+ addBox:SetWidth(125); addBox:SetHeight(22)
+ addBox:SetPoint("TOPLEFT",addTitle,"BOTTOMLEFT",5,-5)
+ addBox:SetAutoFocus(false)
+ addBox:SetMaxLetters(20)
+ addBox:SetScript("OnEnterPressed",function() GS:AddKnownPlayerManual() end)
+ addBox:SetScript("OnEscapePressed",function() this:ClearFocus() end)
+ self.newKnownPlayerEdit=addBox
+
+ local addButton=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
+ addButton:SetWidth(55); addButton:SetHeight(22)
+ addButton:SetPoint("LEFT",addBox,"RIGHT",5,0)
+ addButton:SetText("Ajouter")
+ addButton:SetScript("OnClick",function() GS:AddKnownPlayerManual() end)
+
  local rt=f:CreateFontString(nil,"OVERLAY","GameFontNormal")
- rt:SetPoint("TOPLEFT",f,"TOPLEFT",720,-72)
+ rt:SetPoint("TOPLEFT",f,"TOPLEFT",720,-125)
  rt:SetText("Joueurs connus")
 
  local rh=f:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
@@ -747,7 +925,7 @@ function GS:CreateEditor()
  for i=1,20 do
   local b=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
   b:SetWidth(185); b:SetHeight(18)
-  b:SetPoint("TOPLEFT",f,"TOPLEFT",720,-110-(i-1)*13)
+  b:SetPoint("TOPLEFT",f,"TOPLEFT",720,-163-(i-1)*13)
   b:SetText("")
   b:RegisterForClicks("LeftButtonUp","RightButtonUp")
   b:SetScript("OnClick",function()
@@ -759,7 +937,7 @@ function GS:CreateEditor()
  end
 
  local up=CreateFrame("Button",nil,f,"UIPanelButtonTemplate")
- up:SetWidth(55); up:SetHeight(22); up:SetPoint("TOPLEFT",f,"TOPLEFT",720,-375)
+ up:SetWidth(55); up:SetHeight(22); up:SetPoint("TOPLEFT",f,"TOPLEFT",720,-428)
  up:SetText("Haut"); up:SetScript("OnClick",function() GS:ScrollKnownPlayers(-20) end)
  self.knownUpButton=up
 
